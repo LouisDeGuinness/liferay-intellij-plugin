@@ -6,7 +6,6 @@
 package com.liferay.ide.idea.util;
 
 import com.google.common.collect.ListMultimap;
-
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.execution.ui.RunContentManager;
@@ -32,11 +31,10 @@ import com.intellij.util.containers.ContainerUtil;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -50,13 +48,11 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 import org.apache.commons.io.FileUtils;
-
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ModelBuilder;
 import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.DomainObjectSet;
 import org.gradle.tooling.model.GradleProject;
-
 import org.jetbrains.plugins.gradle.settings.GradleExtensionsSettings;
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
 import org.jetbrains.plugins.gradle.settings.GradleSettings;
@@ -66,7 +62,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlo
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrCall;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall;
-
 import org.osgi.framework.Version;
 
 /**
@@ -76,368 +71,375 @@ import org.osgi.framework.Version;
  */
 public class GradleUtil {
 
-	/**
-	 * @param file build.gradle file
-	 */
-	public static void addGradleDependencies(PsiFile file, String... dependencies) {
-		Project project = file.getProject();
+    /**
+     * @param file build.gradle file
+     */
+    public static void addGradleDependencies(PsiFile file, String... dependencies) {
+        Project project = file.getProject();
 
-		WriteCommandAction.Builder builder = WriteCommandAction.writeCommandAction(project, file);
+        WriteCommandAction.Builder builder = WriteCommandAction.writeCommandAction(project, file);
 
-		builder.withName(
-			"Add Gradle Dependency"
-		).run(
-			() -> {
-				GroovyPsiElementFactory groovyPsiElementFactory = GroovyPsiElementFactory.getInstance(project);
+        builder.withName(
+            "Add Gradle Dependency"
+        ).run(
+            () -> {
+                GroovyPsiElementFactory groovyPsiElementFactory = GroovyPsiElementFactory.getInstance(project);
 
-				List<GrMethodCall> grMethodCalls = PsiTreeUtil.getChildrenOfTypeAsList(file, GrMethodCall.class);
+                List<GrMethodCall> grMethodCalls = PsiTreeUtil.getChildrenOfTypeAsList(file, GrMethodCall.class);
 
-				GrCall dependenciesBlock = ContainerUtil.find(
-					grMethodCalls,
-					call -> {
-						GrExpression grExpression = call.getInvokedExpression();
+                GrCall dependenciesBlock = ContainerUtil.find(
+                    grMethodCalls,
+                    call -> {
+                        GrExpression grExpression = call.getInvokedExpression();
 
-						return Objects.equals(grExpression.getText(), "dependencies");
-					});
+                        return Objects.equals(grExpression.getText(), "dependencies");
+                    }
+                );
 
-				if (dependenciesBlock == null) {
-					StringBuilder stringBuilder = new StringBuilder();
+                if (dependenciesBlock == null) {
+                    StringBuilder stringBuilder = new StringBuilder();
 
-					for (String dependency : dependencies) {
-						stringBuilder.append(String.format("compileOnly '%s'\n", dependency));
-					}
+                    for (String dependency : dependencies) {
+                        stringBuilder.append(String.format("compileOnly '%s'\n", dependency));
+                    }
 
-					dependenciesBlock = (GrCall)groovyPsiElementFactory.createStatementFromText(
-						"dependencies{\n" + stringBuilder + "}");
+                    dependenciesBlock = (GrCall) groovyPsiElementFactory.createStatementFromText(
+                        "dependencies{\n" + stringBuilder + "}");
 
-					file.add(dependenciesBlock);
-				}
-				else {
-					GrClosableBlock grClosableBlock = ArrayUtil.getFirstElement(
-						dependenciesBlock.getClosureArguments());
+                    file.add(dependenciesBlock);
+                } else {
+                    GrClosableBlock grClosableBlock = ArrayUtil.getFirstElement(
+                        dependenciesBlock.getClosureArguments());
 
-					if (grClosableBlock != null) {
-						for (String dependency : dependencies) {
-							grClosableBlock.addStatementBefore(
-								groovyPsiElementFactory.createStatementFromText(
-									String.format("compileOnly '%s'\n", dependency)),
-								null);
-						}
-					}
-				}
-			}
-		);
+                    if (grClosableBlock != null) {
+                        for (String dependency : dependencies) {
+                            grClosableBlock.addStatementBefore(
+                                groovyPsiElementFactory.createStatementFromText(
+                                    String.format("compileOnly '%s'\n", dependency)),
+                                null
+                            );
+                        }
+                    }
+                }
+            }
+        );
 
-		GradleSettings gradleSettings = GradleSettings.getInstance(project);
+        GradleSettings gradleSettings = GradleSettings.getInstance(project);
 
-		String projectRoot = project.getBasePath();
+        String projectRoot = project.getBasePath();
 
-		if (projectRoot != null) {
-			GradleProjectSettings gradleProjectSettings = gradleSettings.getLinkedProjectSettings(projectRoot);
+        if (projectRoot != null) {
+            GradleProjectSettings gradleProjectSettings = gradleSettings.getLinkedProjectSettings(projectRoot);
 
-			if (gradleProjectSettings != null) {
-				ExternalSystemUtil.refreshProjects(new ImportSpecBuilder(project, GradleConstants.SYSTEM_ID));
-			}
-		}
-	}
+            if (gradleProjectSettings != null) {
+                ExternalSystemUtil.refreshProjects(new ImportSpecBuilder(project, GradleConstants.SYSTEM_ID));
+            }
+        }
+    }
 
-	public static GradleProject getGradleProject(Module module) {
-		if (module == null) {
-			return null;
-		}
+    public static GradleProject getGradleProject(Module module) {
+        if (module == null) {
+            return null;
+        }
 
-		GradleProject workspaceGradleProject = getWorkspaceGradleProject(module.getProject());
+        GradleProject workspaceGradleProject = getWorkspaceGradleProject(module.getProject());
 
-		if (workspaceGradleProject == null) {
-			return null;
-		}
+        if (workspaceGradleProject == null) {
+            return null;
+        }
 
-		return getNestedGradleProject(workspaceGradleProject, module);
-	}
+        return getNestedGradleProject(workspaceGradleProject, module);
+    }
 
-	public static <T> T getModel(Class<T> modelClass, VirtualFile virtualFile) throws Exception {
-		T retval = null;
+    public static <T> T getModel(Class<T> modelClass, VirtualFile virtualFile) throws Exception {
+        T retval = null;
 
-		Path cachePath = Paths.get(System.getProperty("user.home", "") + "/.liferay-ide");
+        Path cachePath = Paths.get(System.getProperty("user.home", "") + "/.liferay-ide");
 
-		try {
-			File depsDir = new File(cachePath.toFile(), "deps");
+        try {
+            File depsDir = new File(cachePath.toFile(), "deps");
 
-			depsDir.mkdirs();
+            depsDir.mkdirs();
 
-			String path = depsDir.getAbsolutePath();
+            String path = depsDir.getAbsolutePath();
 
-			path = path.replaceAll("\\\\", "/");
+            path = path.replaceAll("\\\\", "/");
 
-			_extractJar(depsDir, "gradle-tooling");
+            _extractJar(depsDir, "gradle-tooling");
 
-			ClassLoader bladeClassLoader = GradleUtil.class.getClassLoader();
+            ClassLoader bladeClassLoader = GradleUtil.class.getClassLoader();
 
-			File scriptFile = new File(cachePath.toFile(), "init.gradle");
+            File scriptFile = new File(cachePath.toFile(), "init.gradle");
 
-			try (InputStream input = bladeClassLoader.getResourceAsStream("com/liferay/ide/idea/util/init.gradle")) {
-				String initScriptTemplate = CoreUtil.readStreamToString(input);
+            try (InputStream input = bladeClassLoader.getResourceAsStream("com/liferay/ide/idea/util/init.gradle")) {
+                String initScriptTemplate = CoreUtil.readStreamToString(input);
 
-				String initScriptContents = initScriptTemplate.replaceFirst("%deps%", path);
+                String initScriptContents = initScriptTemplate.replaceFirst("%deps%", path);
 
-				if (FileUtil.notExists(scriptFile)) {
-					scriptFile.createNewFile();
-				}
+                if (FileUtil.notExists(scriptFile)) {
+                    scriptFile.createNewFile();
+                }
 
-				FileUtils.writeByteArrayToFile(scriptFile, initScriptContents.getBytes());
-			}
+                FileUtils.writeByteArrayToFile(scriptFile, initScriptContents.getBytes());
+            }
 
-			GradleConnector gradleConnector = GradleConnector.newConnector();
+            GradleConnector gradleConnector = GradleConnector.newConnector();
 
-			gradleConnector.useGradleVersion("7.3.3");
+            gradleConnector.useGradleVersion("7.3.3");
 
-			Path virtualFilePath = Paths.get(virtualFile.getPath());
+            Path virtualFilePath = Paths.get(virtualFile.getPath());
 
-			gradleConnector.forProjectDirectory(virtualFilePath.toFile());
+            gradleConnector.forProjectDirectory(virtualFilePath.toFile());
 
-			ProjectConnection connection = gradleConnector.connect();
+            ProjectConnection connection = gradleConnector.connect();
 
-			ModelBuilder<T> model = connection.model(modelClass);
+            ModelBuilder<T> model = connection.model(modelClass);
 
-			model.withArguments("--init-script", scriptFile.getAbsolutePath(), "--stacktrace");
+            model.withArguments("--init-script", scriptFile.getAbsolutePath(), "--stacktrace");
 
-			retval = model.get();
-		}
-		catch (Exception exception) {
-			throw exception;
-		}
+            retval = model.get();
+        } catch (Exception exception) {
+            throw exception;
+        }
 
-		return retval;
-	}
+        return retval;
+    }
 
-	public static GradleProject getNestedGradleProject(GradleProject gradleProject, Module module) {
-		if (gradleProject == null) {
-			return null;
-		}
+    public static GradleProject getNestedGradleProject(GradleProject gradleProject, Module module) {
+        if (gradleProject == null) {
+            return null;
+        }
 
-		GradleProject nestedGradleProject;
+        GradleProject nestedGradleProject;
 
-		try {
-			ModuleManager moduleManager = ModuleManager.getInstance(module.getProject());
+        try {
+            ModuleManager moduleManager = ModuleManager.getInstance(module.getProject());
 
-			if (Objects.isNull(moduleManager)) {
-				return null;
-			}
+            if (Objects.isNull(moduleManager)) {
+                return null;
+            }
 
-			ModifiableModuleModel modifiableModel = moduleManager.getModifiableModel();
+            ModifiableModuleModel modifiableModel = moduleManager.getModifiableModel();
 
-			String actualName = modifiableModel.getActualName(module);
+            String actualName = modifiableModel.getActualName(module);
 
-			if (actualName.contains(".")) {
-				actualName = actualName.substring(actualName.lastIndexOf(".") + 1);
-			}
+            if (actualName.contains(".")) {
+                actualName = actualName.substring(actualName.lastIndexOf(".") + 1);
+            }
 
-			String projectName = gradleProject.getName();
+            String projectName = gradleProject.getName();
 
-			if (projectName.equals(actualName)) {
-				return gradleProject;
-			}
+            if (projectName.equals(actualName)) {
+                return gradleProject;
+            }
 
-			DomainObjectSet<? extends GradleProject> childGradleProjects = gradleProject.getChildren();
+            DomainObjectSet<? extends GradleProject> childGradleProjects = gradleProject.getChildren();
 
-			if (!childGradleProjects.isEmpty()) {
-				for (GradleProject childGradleProject : childGradleProjects) {
-					String childProjectName = childGradleProject.getName();
+            if (!childGradleProjects.isEmpty()) {
+                for (GradleProject childGradleProject : childGradleProjects) {
+                    String childProjectName = childGradleProject.getName();
 
-					if (childProjectName.equals(actualName)) {
-						return childGradleProject;
-					}
+                    if (childProjectName.equals(actualName)) {
+                        return childGradleProject;
+                    }
 
-					nestedGradleProject = getNestedGradleProject(childGradleProject, module);
+                    nestedGradleProject = getNestedGradleProject(childGradleProject, module);
 
-					if (nestedGradleProject != null) {
-						return nestedGradleProject;
-					}
-				}
-			}
-		}
-		catch (Exception exception) {
-		}
+                    if (nestedGradleProject != null) {
+                        return nestedGradleProject;
+                    }
+                }
+            }
+        } catch (Exception exception) {
+        }
 
-		return null;
-	}
+        return null;
+    }
 
-	public static List<LibraryData> getTargetPlatformArtifacts(Project project) {
-		ProjectDataManager projectDataManager = ProjectDataManager.getInstance();
+    public static List<LibraryData> getTargetPlatformArtifacts(Project project) {
+        ProjectDataManager projectDataManager = ProjectDataManager.getInstance();
 
-		Collection<ExternalProjectInfo> externalProjectInfos = projectDataManager.getExternalProjectsData(
-			project, GradleConstants.SYSTEM_ID);
+        Collection<ExternalProjectInfo> externalProjectInfos = projectDataManager.getExternalProjectsData(
+            project, GradleConstants.SYSTEM_ID);
 
-		for (ExternalProjectInfo externalProjectInfo : externalProjectInfos) {
-			DataNode<ProjectData> projectData = externalProjectInfo.getExternalProjectStructure();
+        for (ExternalProjectInfo externalProjectInfo : externalProjectInfos) {
+            DataNode<ProjectData> projectData = externalProjectInfo.getExternalProjectStructure();
 
-			if (projectData == null) {
-				continue;
-			}
+            if (projectData == null) {
+                continue;
+            }
 
-			Collection<DataNode<?>> dataNodes = projectData.getChildren();
+            Collection<DataNode<?>> dataNodes = projectData.getChildren();
 
-			List<LibraryData> libraryData = new ArrayList<>(dataNodes.size());
+            List<LibraryData> libraryData = new ArrayList<>(dataNodes.size());
 
-			for (DataNode<?> child : dataNodes) {
-				if (!ProjectKeys.LIBRARY.equals(child.getKey())) {
-					continue;
-				}
+            for (DataNode<?> child : dataNodes) {
+                if (!ProjectKeys.LIBRARY.equals(child.getKey())) {
+                    continue;
+                }
 
-				libraryData.add((LibraryData)child.getData());
-			}
+                libraryData.add((LibraryData) child.getData());
+            }
 
-			libraryData.sort(
-				Comparator.comparing(LibraryData::getArtifactId, Comparator.nullsFirst(String.CASE_INSENSITIVE_ORDER)));
+            libraryData.sort(
+                Comparator.comparing(LibraryData::getArtifactId, Comparator.nullsFirst(String.CASE_INSENSITIVE_ORDER)));
 
-			return libraryData;
-		}
+            return libraryData;
+        }
 
-		return Collections.emptyList();
-	}
+        return Collections.emptyList();
+    }
 
-	public static GradleProject getWorkspaceGradleProject(Project project) {
-		Path pathToGradleProject = Paths.get(project.getBasePath());
+    public static GradleProject getWorkspaceGradleProject(Project project) {
+        Path pathToGradleProject = Paths.get(project.getBasePath());
 
-		GradleConnector gradleConnector = GradleConnector.newConnector(
-		).forProjectDirectory(
-			pathToGradleProject.toFile()
-		);
+        GradleConnector gradleConnector = GradleConnector.newConnector(
+        ).forProjectDirectory(
+            pathToGradleProject.toFile()
+        );
 
-		try (ProjectConnection projectConnection = gradleConnector.connect()) {
-			ModelBuilder<GradleProject> modelBuilder = projectConnection.model(GradleProject.class);
+        try (ProjectConnection projectConnection = gradleConnector.connect()) {
+            ModelBuilder<GradleProject> modelBuilder = projectConnection.model(GradleProject.class);
 
-			return modelBuilder.get();
-		}
-	}
+            return modelBuilder.get();
+        }
+    }
 
-	public static String getWorkspacePluginVersion(Project project) {
-		File settingsGradleFile = new File(project.getBasePath(), "settings.gradle");
+    public static String getWorkspacePluginVersion(Project project) {
+        File settingsGradleFile = new File(project.getBasePath(), "settings.gradle");
 
-		GradleDependencyUpdater gradleDependencyUpdater = null;
+        GradleDependencyUpdater gradleDependencyUpdater = null;
 
-		try {
-			gradleDependencyUpdater = new GradleDependencyUpdater(settingsGradleFile);
-		}
-		catch (IOException ioException) {
-		}
+        try {
+            gradleDependencyUpdater = new GradleDependencyUpdater(settingsGradleFile);
+        } catch (IOException ioException) {
+        }
 
-		return Optional.ofNullable(
-			gradleDependencyUpdater
-		).flatMap(
-			updater -> {
-				ListMultimap<String, GradleDependency> dependencies = updater.getAllDependencies();
+        return Optional.ofNullable(
+            gradleDependencyUpdater
+        ).flatMap(
+            updater -> {
+                ListMultimap<String, GradleDependency> dependencies = updater.getAllDependencies();
 
-				List<GradleDependency> artifacts = new ArrayList<>(dependencies.values());
+                List<GradleDependency> artifacts = new ArrayList<>(dependencies.values());
 
-				return artifacts.stream(
-				).filter(
-					artifact -> Objects.equals(artifact.getGroup(), "com.liferay")
-				).filter(
-					artifact -> Objects.equals(artifact.getName(), "com.liferay.gradle.plugins.workspace")
-				).filter(
-					artifact -> !CoreUtil.isNullOrEmpty(artifact.getVersion())
-				).map(
-					GradleDependency::getVersion
-				).findFirst();
-			}
-		).orElseGet(
-			() -> "2.2.4"
-		);
-	}
+                return artifacts.stream(
+                ).filter(
+                    artifact -> Objects.equals(artifact.getGroup(), "com.liferay")
+                ).filter(
+                    artifact -> Objects.equals(artifact.getName(), "com.liferay.gradle.plugins.workspace")
+                ).filter(
+                    artifact -> !CoreUtil.isNullOrEmpty(artifact.getVersion())
+                ).map(
+                    GradleDependency::getVersion
+                ).findFirst();
+            }
+        ).orElseGet(
+            () -> "2.2.4"
+        );
+    }
 
-	public static boolean isWatchableProject(Module module) {
-		Project project = module.getProject();
+    public static boolean isWatchableProject(Module module) {
+        Project project = module.getProject();
 
-		RunContentManager runContentManager = RunContentManager.getInstance(project);
+        RunContentManager runContentManager = RunContentManager.getInstance(project);
 
-		List<RunContentDescriptor> allDescriptors = runContentManager.getAllDescriptors();
+        List<RunContentDescriptor> allDescriptors = runContentManager.getAllDescriptors();
 
-		for (RunContentDescriptor descriptor : allDescriptors) {
-			ProcessHandler processHandler = descriptor.getProcessHandler();
+        for (RunContentDescriptor descriptor : allDescriptors) {
+            ProcessHandler processHandler = descriptor.getProcessHandler();
 
-			if (processHandler != null) {
-				boolean processTerminated = processHandler.isProcessTerminated();
+            if (processHandler != null) {
+                boolean processTerminated = processHandler.isProcessTerminated();
 
-				if (Objects.equals(project.getName() + " [watch]", descriptor.getDisplayName()) && !processTerminated) {
-					return false;
-				}
-			}
-		}
+                if (Objects.equals(project.getName() + " [watch]", descriptor.getDisplayName()) && !processTerminated) {
+                    return false;
+                }
+            }
+        }
 
-		GradleExtensionsSettings.Settings settings = GradleExtensionsSettings.getInstance(project);
+        GradleExtensionsSettings.Settings settings = GradleExtensionsSettings.getInstance(project);
 
-		GradleExtensionsSettings.GradleExtensionsData gradleExtensionsData = settings.getExtensionsFor(module);
+        GradleExtensionsSettings.GradleExtensionsData gradleExtensionsData = settings.getExtensionsFor(module);
 
-		if (gradleExtensionsData == null) {
-			return false;
-		}
+        if (gradleExtensionsData == null) {
+            return false;
+        }
 
-		return gradleExtensionsData.tasksMap.entrySet(
-		).stream(
-		).map(
-			entry -> entry.getValue()
-		).filter(
-			task -> Objects.equals(task.name, "watch")
-		).filter(
-			task -> Objects.deepEquals("com.liferay.gradle.plugins.task.WatchTask", task.typeFqn)
-		).findAny(
-		).isPresent();
-	}
+        return gradleExtensionsData.tasksMap.entrySet(
+        ).stream(
+        ).map(
+            entry -> entry.getValue()
+        ).filter(
+            task -> Objects.equals(_getTaskFieldByReflection(task, "name"), "watch")
+        ).filter(
+            task -> Objects.deepEquals("com.liferay.gradle.plugins.task.WatchTask", _getTaskFieldByReflection(task, "typeFqn"))
+        ).findAny(
+        ).isPresent();
+    }
 
-	private static void _extractJar(File depsDir, String jarName) throws IOException {
-		String fullFileName = jarName + ".jar";
+    private static String _getTaskFieldByReflection(GradleExtensionsSettings.GradleTask task, String fieldName) {
 
-		File toolingJar = new File(depsDir, fullFileName);
+        try {
+            Field field = GradleExtensionsSettings.GradleTask.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return (String) field.get(task);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            return "";
+        }
+    }
 
-		ClassLoader classLoader = GradleUtil.class.getClassLoader();
+    private static void _extractJar(File depsDir, String jarName) throws IOException {
+        String fullFileName = jarName + ".jar";
 
-		boolean needToCopy = true;
+        File toolingJar = new File(depsDir, fullFileName);
 
-		try (InputStream inputStream = classLoader.getResourceAsStream("libs/" + fullFileName)) {
-			if (toolingJar.exists()) {
-				Version urlJarVersion = Version.parseVersion(_getJarVersion(inputStream));
+        ClassLoader classLoader = GradleUtil.class.getClassLoader();
 
-				try (InputStream existedJarInputStream = Files.newInputStream(toolingJar.toPath())) {
-					Version existedJarVersion = Version.parseVersion(_getJarVersion(existedJarInputStream));
+        boolean needToCopy = true;
 
-					if (urlJarVersion.compareTo(existedJarVersion) <= 0) {
-						needToCopy = false;
-					}
-				}
-			}
+        try (InputStream inputStream = classLoader.getResourceAsStream("libs/" + fullFileName)) {
+            if (toolingJar.exists()) {
+                Version urlJarVersion = Version.parseVersion(_getJarVersion(inputStream));
 
-			if (needToCopy) {
-				toolingJar.delete();
+                try (InputStream existedJarInputStream = Files.newInputStream(toolingJar.toPath())) {
+                    Version existedJarVersion = Version.parseVersion(_getJarVersion(existedJarInputStream));
 
-				FileUtil.writeFile(toolingJar, inputStream);
-			}
-		}
-		catch (IOException ioException) {
-		}
-	}
+                    if (urlJarVersion.compareTo(existedJarVersion) <= 0) {
+                        needToCopy = false;
+                    }
+                }
+            }
 
-	private static String _getJarVersion(InputStream inputStream) {
-		try (ZipInputStream zipInput = new ZipInputStream(inputStream)) {
-			ZipEntry zipEntry = null;
+            if (needToCopy) {
+                toolingJar.delete();
 
-			do {
-				zipEntry = zipInput.getNextEntry();
+                FileUtil.writeFile(toolingJar, inputStream);
+            }
+        } catch (IOException ioException) {
+        }
+    }
 
-				if (Objects.equals(zipEntry.getName(), "META-INF/MANIFEST.MF")) {
-					Manifest manifest = new Manifest(zipInput);
+    private static String _getJarVersion(InputStream inputStream) {
+        try (ZipInputStream zipInput = new ZipInputStream(inputStream)) {
+            ZipEntry zipEntry = null;
 
-					Attributes mainAttributes = manifest.getMainAttributes();
+            do {
+                zipEntry = zipInput.getNextEntry();
 
-					return mainAttributes.getValue("Manifest-Version");
-				}
-			}
-			while (zipEntry != null);
-		}
-		catch (Exception exception) {
-		}
+                if (Objects.equals(zipEntry.getName(), "META-INF/MANIFEST.MF")) {
+                    Manifest manifest = new Manifest(zipInput);
 
-		return null;
-	}
+                    Attributes mainAttributes = manifest.getMainAttributes();
+
+                    return mainAttributes.getValue("Manifest-Version");
+                }
+            }
+            while (zipEntry != null);
+        } catch (Exception exception) {
+        }
+
+        return null;
+    }
 
 }
